@@ -52,4 +52,6 @@ func main() {
 
 	log.Fatal(app.Listen(":6060"))
 
+	fmt.Println("ASD")
+
 }
