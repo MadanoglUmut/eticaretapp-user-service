@@ -1,0 +1,14 @@
+version: '3.7'
+services:
+  postgrsql_db:
+    image: postgres:latest
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}          
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}  
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./psql/create_tables.sql:/docker-entrypoint-initdb.d/create_tables.sql
+      - ./psql/fill_tables.sql:/docker-entrypoint-initdb.d/fill_tables.sql
+    ports:
+      - "${DB_PORT}:5432"
