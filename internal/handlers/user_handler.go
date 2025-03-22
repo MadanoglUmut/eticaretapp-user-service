@@ -3,6 +3,7 @@ package handlers
 import (
 	"UserService/internal/models"
 	"fmt"
+	"math/rand"
 	"os"
 	"strings"
 	"time"
@@ -22,14 +23,21 @@ type userService interface {
 	Delete(userId int) error
 }
 
-type UserHandler struct {
-	userService userService
+type redisService interface {
+	Set(userId int, token string) error
+	GetTokens(userId int) ([]string, error)
 }
 
-func NewUserHandler(userService userService) *UserHandler {
+type UserHandler struct {
+	userService  userService
+	redisService redisService
+}
+
+func NewUserHandler(userService userService, redisService redisService) *UserHandler {
 
 	return &UserHandler{
-		userService: userService,
+		userService:  userService,
+		redisService: redisService,
 	}
 
 }
@@ -67,9 +75,19 @@ func (h *UserHandler) Login(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(models.FailResponse{Error: "Token Oluşturulamadi", Details: err.Error()})
 	}
+	//REDİS SERVİS DEĞİL CLİENT OLCAK
+	bearerToken := tokenString
+	err = h.redisService.Set(user.ID, bearerToken)
 
+	if err != nil {
+
+		return c.Status(fiber.StatusInternalServerError).JSON(models.FailResponse{
+			Error:   "Token Redis'e yazılamadı",
+			Details: err.Error()},
+		)
+
+	}
 	return c.Status(fiber.StatusOK).JSON(models.SuccesResponse{SuccesData: tokenString})
-
 }
 
 func (h *UserHandler) Logout(c *fiber.Ctx) error {
@@ -79,6 +97,15 @@ func (h *UserHandler) Logout(c *fiber.Ctx) error {
 }
 
 func (h *UserHandler) GetUser(c *fiber.Ctx) error {
+
+	randomNumber := rand.Intn(100)
+
+	if randomNumber < 5 {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(models.FailResponse{
+			Error:   "Sunucu  hizmet veremiyor",
+			Details: "Tekrar deneyin",
+		})
+	}
 
 	userClaims := c.Locals("user").(jwt.MapClaims)
 	userId := int(userClaims["id"].(float64))
@@ -187,6 +214,31 @@ func (h *UserHandler) JWTMiddleware(c *fiber.Ctx) error {
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
+		return c.Status(fiber.StatusUnauthorized).JSON(models.ErrorResponse{Error: models.ErrInvalidToken})
+	}
+
+	userId := int(claims["id"].(float64))
+
+	tokens, err := h.redisService.GetTokens(userId)
+
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(models.FailResponse{
+			Error:   "Redis'te token kontrolü sırasında hata oluştu",
+			Details: err.Error(),
+		})
+	}
+
+	fmt.Println(tokens[0])
+
+	tokenFound := false
+	for _, t := range tokens {
+		if t == tokenString {
+			tokenFound = true
+			break
+		}
+	}
+
+	if !tokenFound {
 		return c.Status(fiber.StatusUnauthorized).JSON(models.ErrorResponse{Error: models.ErrInvalidToken})
 	}
 

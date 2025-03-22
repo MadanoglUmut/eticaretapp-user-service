@@ -5,6 +5,8 @@ import (
 	"UserService/internal/repositories"
 	"UserService/internal/services"
 	"UserService/pkg/psql"
+	"UserService/pkg/redis"
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -33,6 +35,20 @@ func main() {
 	password := os.Getenv("DB_PASSWORD")
 	name := os.Getenv("DB_NAME")
 	port := os.Getenv("DB_PORT")
+	redisHost := os.Getenv("REDIS_HOST")
+	redisPort := os.Getenv("REDIS_PORT")
+	redisPassword := os.Getenv("REDIS_PASSWORD")
+
+	redisClient := redis.NewClient(redisHost, redisPort, redisPassword)
+
+	ctx := context.Background()
+
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		log.Fatalf("Redis'e bağlanılamadı: %v", err)
+	}
+	log.Println("Redis'e başarıyla bağlanıldı")
+
+	redisC := redis.NewRedis(redisClient, ctx)
 
 	var db = psql.Connect(host, user, password, name, port)
 
@@ -40,7 +56,9 @@ func main() {
 
 	userService := services.NewUserService(userRepo)
 
-	userHand := handlers.NewUserHandler(userService)
+	redisService := services.NewRedisService(redisC)
+
+	userHand := handlers.NewUserHandler(userService, redisService)
 
 	userHand.UserSetRoutes(app)
 
@@ -51,7 +69,5 @@ func main() {
 	swagger.SwaggerHandler(app, sw.MustToJson(), swagger.WithPrefix("/swagger"))
 
 	log.Fatal(app.Listen(":6060"))
-
-	fmt.Println("ASD")
 
 }

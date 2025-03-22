@@ -12,3 +12,11 @@ services:
       - ./psql/fill_tables.sql:/docker-entrypoint-initdb.d/fill_tables.sql
     ports:
       - "${DB_PORT}:5432"
+
+  redis:  
+    image: redis:latest
+    restart: always
+    ports:
+      - "${REDIS_PORT}:6379"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
