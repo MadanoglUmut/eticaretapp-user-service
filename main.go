@@ -4,6 +4,7 @@ import (
 	"UserService/internal/handlers"
 	"UserService/internal/repositories"
 	"UserService/internal/services"
+	"UserService/pkg/metrics"
 	"UserService/pkg/psql"
 	"UserService/pkg/redis"
 	"context"
@@ -14,7 +15,9 @@ import (
 	"github.com/go-swagno/swagno"
 	"github.com/go-swagno/swagno-fiber/swagger"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	"github.com/joho/godotenv"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 func main() {
@@ -23,7 +26,9 @@ func main() {
 
 	app := fiber.New()
 
-	err := godotenv.Load("../../.env")
+	//err := godotenv.Load("../../.env")
+
+	err := godotenv.Load(".env")
 	if err != nil {
 
 		log.Fatal("Env Dosyası Yüklenemedi", err)
@@ -39,6 +44,8 @@ func main() {
 	redisPort := os.Getenv("REDIS_PORT")
 	redisPassword := os.Getenv("REDIS_PASSWORD")
 
+	var db = psql.Connect(host, user, password, name, port)
+
 	redisClient := redis.NewClient(redisHost, redisPort, redisPassword)
 
 	ctx := context.Background()
@@ -50,17 +57,22 @@ func main() {
 
 	redisC := redis.NewRedis(redisClient, ctx)
 
-	var db = psql.Connect(host, user, password, name, port)
-
 	userRepo := repositories.NewUserRepository(db)
 
 	userService := services.NewUserService(userRepo)
 
 	redisService := services.NewRedisService(redisC)
 
-	userHand := handlers.NewUserHandler(userService, redisService)
+	histogram := metrics.NewNamedHistogram("http_request_userservice_duration_seconds", []float64{0.001, 0.005, 0.01, 0.05, 0.1})
+
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(histogram.Histogram)
+
+	userHand := handlers.NewUserHandler(userService, redisService, histogram)
 
 	userHand.UserSetRoutes(app)
+
+	app.Get("/metrics", adaptor.HTTPHandler(metrics.GetHandler(registry)))
 
 	sw := swagno.New(swagno.Config{Title: "Testing API", Version: "v1.0.0"})
 
