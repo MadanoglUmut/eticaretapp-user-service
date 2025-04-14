@@ -28,16 +28,22 @@ type redisService interface {
 	GetTokens(userId int) ([]string, error)
 }
 
+type metric interface {
+	ObserveHandler(name string, startTime time.Time, status int)
+}
+
 type UserHandler struct {
 	userService  userService
 	redisService redisService
+	metric       metric
 }
 
-func NewUserHandler(userService userService, redisService redisService) *UserHandler {
+func NewUserHandler(userService userService, redisService redisService, metric metric) *UserHandler {
 
 	return &UserHandler{
 		userService:  userService,
 		redisService: redisService,
+		metric:       metric,
 	}
 
 }
@@ -46,21 +52,26 @@ var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 
 func (h *UserHandler) Login(c *fiber.Ctx) error {
 
+	defer func() {
+		h.metric.ObserveHandler("UserHandler_Login", time.Now(), c.Response().StatusCode())
+	}()
+
 	var loginRequest models.LoginRequest
 
 	if err := c.BodyParser(&loginRequest); err != nil {
 
 		return c.Status(fiber.StatusBadRequest).JSON(models.FailResponse{Error: "Body Parse Hatasi", Details: err.Error()})
-
 	}
 
 	user, err := h.userService.GetUserByEmail(loginRequest.Email)
 
 	if err != nil {
+
 		return c.Status(fiber.StatusNotFound).JSON(models.FailResponse{Error: "Kullanıcı Bulunamadi", Details: err.Error()})
 	}
 
 	if user.Password != loginRequest.Password {
+
 		return c.Status(fiber.StatusBadRequest).JSON(models.FailResponse{Error: "Şifre Hatali", Details: "Şifreniz Hatali Tekrar Deneyin"})
 	}
 
@@ -73,9 +84,10 @@ func (h *UserHandler) Login(c *fiber.Ctx) error {
 	tokenString, err := token.SignedString(jwtSecret)
 
 	if err != nil {
+
 		return c.Status(fiber.StatusInternalServerError).JSON(models.FailResponse{Error: "Token Oluşturulamadi", Details: err.Error()})
 	}
-	//REDİS SERVİS DEĞİL CLİENT OLCAK
+
 	bearerToken := tokenString
 	err = h.redisService.Set(user.ID, bearerToken)
 
@@ -87,10 +99,15 @@ func (h *UserHandler) Login(c *fiber.Ctx) error {
 		)
 
 	}
+
 	return c.Status(fiber.StatusOK).JSON(models.SuccesResponse{SuccesData: tokenString})
 }
 
 func (h *UserHandler) Logout(c *fiber.Ctx) error {
+
+	defer func() {
+		h.metric.ObserveHandler("UserHandler_Logout", time.Now(), c.Response().StatusCode())
+	}()
 
 	return c.Status(fiber.StatusOK).JSON(models.SuccesResponse{SuccesData: "Cikis Islemi Basarili"})
 
@@ -98,9 +115,13 @@ func (h *UserHandler) Logout(c *fiber.Ctx) error {
 
 func (h *UserHandler) GetUser(c *fiber.Ctx) error {
 
+	defer func() {
+		h.metric.ObserveHandler("UserHandler_GetUser", time.Now(), c.Response().StatusCode())
+	}()
+
 	randomNumber := rand.Intn(100)
 
-	if randomNumber < 5 {
+	if randomNumber < 40 {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(models.FailResponse{
 			Error:   "Sunucu  hizmet veremiyor",
 			Details: "Tekrar deneyin",
@@ -128,6 +149,10 @@ func (h *UserHandler) GetUser(c *fiber.Ctx) error {
 
 func (h *UserHandler) CreateUser(c *fiber.Ctx) error {
 
+	defer func() {
+		h.metric.ObserveHandler("UserHandler_CreateUser", time.Now(), c.Response().StatusCode())
+	}()
+
 	var createdUser models.CreateUsers
 
 	if err := c.BodyParser(&createdUser); err != nil {
@@ -146,23 +171,23 @@ func (h *UserHandler) CreateUser(c *fiber.Ctx) error {
 
 func (h *UserHandler) UpdateUser(c *fiber.Ctx) error {
 
+	defer func() {
+		h.metric.ObserveHandler("UserHandler_UpdateUser", time.Now(), c.Response().StatusCode())
+	}()
+
 	userClaims := c.Locals("user").(jwt.MapClaims)
 	userId := int(userClaims["id"].(float64))
 
 	var updatedUser models.UpdateUsers
 
 	if err := c.BodyParser(&updatedUser); err != nil {
-
 		return c.Status(fiber.StatusBadRequest).JSON(models.FailResponse{Error: "Body Parse Hatasi", Details: err.Error()})
-
 	}
 
 	user, err := h.userService.UpdateUser(userId, updatedUser)
 
 	if err != nil {
-
 		return c.Status(fiber.StatusInternalServerError).JSON(models.FailResponse{Error: "Kullanici Güncellenemedi", Details: err.Error()})
-
 	}
 
 	return c.Status(fiber.StatusOK).JSON(models.SuccesResponse{SuccesData: user})
@@ -170,6 +195,10 @@ func (h *UserHandler) UpdateUser(c *fiber.Ctx) error {
 }
 
 func (h *UserHandler) DeleteUser(c *fiber.Ctx) error {
+
+	defer func() {
+		h.metric.ObserveHandler("UserHandler_DeleteUser", time.Now(), c.Response().StatusCode())
+	}()
 
 	userClaims := c.Locals("user").(jwt.MapClaims)
 	userId := int(userClaims["id"].(float64))
